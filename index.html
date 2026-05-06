@@ -190,6 +190,15 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
         <option value="w">💼 사역/업무</option>
       </select>
     </div>
+    <div class="fg"><label>📅 날짜 변경</label>
+      <input type="date" id="t-date"/>
+    </div>
+    <div class="fg"><label>⏰ 시간 변경</label>
+      <select id="t-time">
+        <option value="allday">하루 종일</option>
+        ${Array.from({length:17*2},(_,i)=>{const h=Math.floor(i/2)+6,m=i%2===0?'00':'30';const v=`${String(h).padStart(2,'0')}:${m}`;return `<option value="${v}">${v}</option>`}).join('')}
+      </select>
+    </div>
     <div class="fg"><label>📍 장소 <span style="font-weight:400;color:#bbb">(입력 시 지도 링크 생성)</span></label>
       <input type="text" id="t-loc" placeholder="예) 강남역 교보타워..." oninput="onLocInput()"/>
     </div>
@@ -567,6 +576,8 @@ function openEdit(ds,id){
   document.getElementById('mod-tm').textContent=t.tm;
   document.getElementById('t-ttl').value=t.ttl;
   document.getElementById('t-cat').value=t.c;
+  document.getElementById('t-date').value=ds;
+  document.getElementById('t-time').value=t.tm||'allday';
   document.getElementById('t-loc').value=t.loc||'';
   document.getElementById('t-memo').value=t.memo||'';
   depMode='home';curLat=null;curLng=null;
