@@ -103,6 +103,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 .fg input,.fg select,.fg textarea{width:100%;padding:8px 10px;border:1px solid #ddd;border-radius:6px;font-size:.88rem;outline:none;font-family:inherit}
 .fg input:focus,.fg select:focus,.fg textarea:focus{border-color:#3498db}
 .fg textarea{resize:vertical;min-height:60px;line-height:1.5}
+.dt-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px}
+.dt-row .fg{margin-bottom:0}
 .map-sec{background:#eaf4ff;border-radius:9px;padding:12px;margin-bottom:10px;border:1px solid #c5dff5;display:none}
 .map-sec h4{font-size:.75rem;color:#2980b9;font-weight:700;margin-bottom:9px}
 .dep-row{display:flex;align-items:center;gap:7px;margin-bottom:7px;flex-wrap:wrap}
@@ -179,9 +181,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
       <h3 id="mod-ttl">📝 할 일 추가</h3>
       <span class="tform-time" id="mod-tm"></span>
     </div>
+
     <div class="fg"><label>내용</label>
       <input type="text" id="t-ttl" placeholder="무엇을 할 건가요?" onkeydown="if(event.key==='Enter')saveTsk()"/>
     </div>
+
     <div class="fg"><label>카테고리</label>
       <select id="t-cat">
         <option value="p">🏠 개인</option>
@@ -190,15 +194,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
         <option value="w">💼 사역/업무</option>
       </select>
     </div>
-    <div class="fg"><label>📅 날짜 변경</label>
-      <input type="date" id="t-date"/>
+
+    <!-- 날짜/시간 변경 (수정 모드에서만 표시) -->
+    <div id="dt-change-row" class="dt-row" style="display:none">
+      <div class="fg">
+        <label>📅 날짜 변경</label>
+        <input type="date" id="t-date"/>
+      </div>
+      <div class="fg">
+        <label>⏰ 시간 변경</label>
+        <select id="t-time"></select>
+      </div>
     </div>
-    <div class="fg"><label>⏰ 시간 변경</label>
-      <select id="t-time">
-        <option value="allday">하루 종일</option>
-        ${Array.from({length:17*2},(_,i)=>{const h=Math.floor(i/2)+6,m=i%2===0?'00':'30';const v=`${String(h).padStart(2,'0')}:${m}`;return `<option value="${v}">${v}</option>`}).join('')}
-      </select>
-    </div>
+
     <div class="fg"><label>📍 장소 <span style="font-weight:400;color:#bbb">(입력 시 지도 링크 생성)</span></label>
       <input type="text" id="t-loc" placeholder="예) 강남역 교보타워..." oninput="onLocInput()"/>
     </div>
@@ -231,86 +239,76 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 </div>
 
 <script>
-// ── Firebase REST API 설정 ──
-const FB_PROJECT = "my-calendar-ebffd";
-const FB_KEY     = "AIzaSyC8LBPGgESSYkP8sXus7EkmwvnDMtDXPT0";
-const FB_BASE    = `https://firestore.googleapis.com/v1/projects/${FB_PROJECT}/databases/(default)/documents`;
+// ── Firebase REST API ──
+const FB_PROJECT="my-calendar-ebffd";
+const FB_KEY="AIzaSyC8LBPGgESSYkP8sXus7EkmwvnDMtDXPT0";
+const FB_BASE=`https://firestore.googleapis.com/v1/projects/${FB_PROJECT}/databases/(default)/documents`;
 
-// ── Firestore 형식 변환 ──
 function toFS(v){
-  if(v===null||v===undefined) return {nullValue:null};
-  if(typeof v==='boolean') return {booleanValue:v};
-  if(typeof v==='number') return Number.isInteger(v)?{integerValue:String(v)}:{doubleValue:v};
-  if(typeof v==='string') return {stringValue:v};
-  if(Array.isArray(v)) return {arrayValue:{values:v.length?v.map(toFS):[]}};
-  if(typeof v==='object') return {mapValue:{fields:Object.fromEntries(Object.entries(v).map(([k,val])=>[k,toFS(val)]))}};
-  return {stringValue:String(v)};
+  if(v===null||v===undefined)return{nullValue:null};
+  if(typeof v==='boolean')return{booleanValue:v};
+  if(typeof v==='number')return Number.isInteger(v)?{integerValue:String(v)}:{doubleValue:v};
+  if(typeof v==='string')return{stringValue:v};
+  if(Array.isArray(v))return{arrayValue:{values:v.length?v.map(toFS):[]}};
+  if(typeof v==='object')return{mapValue:{fields:Object.fromEntries(Object.entries(v).map(([k,val])=>[k,toFS(val)]))}};
+  return{stringValue:String(v)};
 }
 function fromFS(v){
-  if(!v) return null;
-  if('nullValue' in v) return null;
-  if('booleanValue' in v) return v.booleanValue;
-  if('integerValue' in v) return parseInt(v.integerValue);
-  if('doubleValue' in v) return v.doubleValue;
-  if('stringValue' in v) return v.stringValue;
-  if('arrayValue' in v) return (v.arrayValue.values||[]).map(fromFS);
-  if('mapValue' in v) return Object.fromEntries(Object.entries(v.mapValue.fields||{}).map(([k,val])=>[k,fromFS(val)]));
+  if(!v)return null;
+  if('nullValue'in v)return null;
+  if('booleanValue'in v)return v.booleanValue;
+  if('integerValue'in v)return parseInt(v.integerValue);
+  if('doubleValue'in v)return v.doubleValue;
+  if('stringValue'in v)return v.stringValue;
+  if('arrayValue'in v)return(v.arrayValue.values||[]).map(fromFS);
+  if('mapValue'in v)return Object.fromEntries(Object.entries(v.mapValue.fields||{}).map(([k,val])=>[k,fromFS(val)]));
   return null;
 }
-
-// ── Firebase CRUD ──
-async function fbGet(col, doc){
-  try{
-    const r = await fetch(`${FB_BASE}/${col}/${doc}?key=${FB_KEY}`);
-    if(!r.ok) return null;
-    const d = await r.json();
-    return d.fields ? fromFS({mapValue:{fields:d.fields}}) : null;
-  }catch(e){return null;}
+async function fbGet(col,doc){
+  try{const r=await fetch(`${FB_BASE}/${col}/${doc}?key=${FB_KEY}`);if(!r.ok)return null;const d=await r.json();return d.fields?fromFS({mapValue:{fields:d.fields}}):null;}catch(e){return null;}
 }
-async function fbSet(col, doc, data){
+async function fbSet(col,doc,data){
   try{
-    const fields = Object.fromEntries(Object.entries(data).map(([k,v])=>[k,toFS(v)]));
-    const r = await fetch(`${FB_BASE}/${col}/${doc}?key=${FB_KEY}`, {
-      method:'PATCH',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({fields})
-    });
+    const fields=Object.fromEntries(Object.entries(data).map(([k,v])=>[k,toFS(v)]));
+    const r=await fetch(`${FB_BASE}/${col}/${doc}?key=${FB_KEY}`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({fields})});
     return r.ok;
   }catch(e){return false;}
 }
 async function fbList(col){
   try{
-    const r = await fetch(`${FB_BASE}/${col}?key=${FB_KEY}`);
-    if(!r.ok) return {};
-    const d = await r.json();
-    const result = {};
-    (d.documents||[]).forEach(doc=>{
-      const id = doc.name.split('/').pop();
-      const obj = fromFS({mapValue:{fields:doc.fields}});
-      result[id] = obj;
-    });
+    const r=await fetch(`${FB_BASE}/${col}?key=${FB_KEY}`);if(!r.ok)return{};
+    const d=await r.json();const result={};
+    (d.documents||[]).forEach(doc=>{const id=doc.name.split('/').pop();result[id]=fromFS({mapValue:{fields:doc.fields}});});
     return result;
-  }catch(e){return {};}
+  }catch(e){return{};}
 }
-
-async function fbSave(type, date){
-  const data = type==='tasks'?(tasks[date]||[]):(allday[date]||[]);
-  const ok = await fbSet(type==='tasks'?'cal_tasks':'cal_allday', date, {items:data});
-  if(ok) setSyncStatus('on'); else setSyncStatus('off');
+async function fbSave(type,date){
+  const data=type==='tasks'?(tasks[date]||[]):(allday[date]||[]);
+  const ok=await fbSet(type==='tasks'?'cal_tasks':'cal_allday',date,{items:data});
+  setSyncStatus(ok?'on':'off');
 }
-
 async function fbLoadAll(){
   setSyncStatus('wait');
   try{
-    const [t, a] = await Promise.all([fbList('cal_tasks'), fbList('cal_allday')]);
-    Object.entries(t).forEach(([date,obj])=>{ if(obj&&obj.items) tasks[date]=obj.items; });
-    Object.entries(a).forEach(([date,obj])=>{ if(obj&&obj.items) allday[date]=obj.items; });
+    const[t,a]=await Promise.all([fbList('cal_tasks'),fbList('cal_allday')]);
+    Object.entries(t).forEach(([date,obj])=>{if(obj&&obj.items)tasks[date]=obj.items;});
+    Object.entries(a).forEach(([date,obj])=>{if(obj&&obj.items)allday[date]=obj.items;});
     setSyncStatus('on');
-  }catch(e){
-    setSyncStatus('off');
-  }
+  }catch(e){setSyncStatus('off');}
   render();
   if(isPopOpen()){renderSlots();renderAlldayList();}
+}
+
+// ── 시간 옵션 생성 ──
+function buildTimeOptions(){
+  const sel=document.getElementById('t-time');
+  sel.innerHTML='<option value="allday">하루 종일</option>';
+  for(let hr=6;hr<=22;hr++){
+    for(let mn=0;mn<60;mn+=30){
+      const v=`${p2(hr)}:${p2(mn)}`;
+      sel.innerHTML+=`<option value="${v}">${v}</option>`;
+    }
+  }
 }
 
 // ── Holidays ──
@@ -338,13 +336,13 @@ const CC={p:'#1abc9c',h:'#e67e22',s:'#3498db',w:'#8e44ad'};
 const CB={p:'#eafaf1',h:'#fef5e7',s:'#eaf4fb',w:'#f5eef8'};
 const DAYS=['일','월','화','수','목','금','토'];
 
-let tasks={}, allday={};
-let curY=new Date().getFullYear(), curM=new Date().getMonth();
-let aDate=null, aTime=null, mMode='add', editId=null;
-let depMode='home', curLat=null, curLng=null;
+let tasks={},allday={};
+let curY=new Date().getFullYear(),curM=new Date().getMonth();
+let aDate=null,aTime=null,mMode='add',editId=null;
+let depMode='home',curLat=null,curLng=null;
 const TODAY=fd(new Date());
 
-function fd(d){return `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`}
+function fd(d){return`${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`}
 function p2(n){return String(n).padStart(2,'0')}
 function addD(ds,n){const d=new Date(ds);d.setDate(d.getDate()+n);return fd(d)}
 function isPopOpen(){return document.getElementById('day-ovl').classList.contains('on')}
@@ -355,9 +353,9 @@ function setSyncStatus(s){
   else{el.className='sync-pill wait';el.textContent='연결 중...'}
 }
 
-// ── 초기 로드 + 30초마다 자동 새로고침 ──
+buildTimeOptions();
 fbLoadAll();
-setInterval(fbLoadAll, 30000);
+setInterval(fbLoadAll,30000);
 
 // ── Render ──
 function render(){renderHdr();renderSum();renderCal()}
@@ -402,10 +400,10 @@ function renderCal(){
     const adStrips=ad.slice(0,1).map(t=>`<div class="allday-strip">${t.dn?'✓ ':''}${t.ttl}</div>`).join('');
     const chips=dt.slice(0,2).map(t=>{
       const isOD=isPast&&!isT&&!t.dn;
-      return `<div class="chip ${t.dn?'dne':''} ${isOD?'ovc':''}" style="background:${isOD?'':CB[t.c]};color:${isOD?'':CC[t.c]};border-color:${CC[t.c]}">${t.tm?t.tm.slice(0,5)+' ':''}${t.loc?'📍 ':''}${t.ttl}</div>`;
+      return`<div class="chip ${t.dn?'dne':''} ${isOD?'ovc':''}" style="background:${isOD?'':CB[t.c]};color:${isOD?'':CC[t.c]};border-color:${CC[t.c]}">${t.tm?t.tm.slice(0,5)+' ':''}${t.loc?'📍 ':''}${t.ttl}</div>`;
     }).join('');
     const total=dt.length+ad.length;
-    return `<div class="dc${isT?' tod':''}${hol?' hol':''}" ${isSu?'data-s':''} ${isSa?'data-sa':''} onclick="openPop('${ds}')">
+    return`<div class="dc${isT?' tod':''}${hol?' hol':''}" ${isSu?'data-s':''} ${isSa?'data-sa':''} onclick="openPop('${ds}')">
       <div class="dn2">${d.getDate()}</div>
       ${hol?`<div class="hol-name">🇰🇷 ${hol}</div>`:''}
       ${adStrips}
@@ -419,8 +417,7 @@ function chgMon(dir){curM+=dir;if(curM<0){curM=11;curY--}if(curM>11){curM=0;curY
 // ── Day popup ──
 function openPop(ds){
   aDate=ds;
-  const d=new Date(ds);
-  const hol=HOLIDAYS[ds];
+  const d=new Date(ds),hol=HOLIDAYS[ds];
   document.getElementById('pop-title').textContent=`${d.getMonth()+1}월 ${d.getDate()}일 (${DAYS[d.getDay()]})`;
   document.getElementById('pop-hol').textContent=hol?`🇰🇷 ${hol}`:'';
   renderAlldayList();renderSlots();
@@ -457,7 +454,7 @@ function renderSlots(){
       const tm=`${p2(hr)}:${p2(mn)}`,st=dt.filter(t=>t.tm===tm);
       const tasksHTML=st.map(t=>{
         const mUrl=t.loc?`https://www.google.com/maps/dir/${encodeURIComponent(HOME_FULL)}/${encodeURIComponent(t.loc)}/?travelmode=transit`:'';
-        return `<div class="stask${t.dn?' dne':''}" style="background:${CB[t.c]};border-color:${CC[t.c]}">
+        return`<div class="stask${t.dn?' dne':''}" style="background:${CB[t.c]};border-color:${CC[t.c]}">
           <div class="stask-top">
             <span class="stask-check" onclick="event.stopPropagation();toggleDn('${aDate}','${t.id}')">${t.dn?'✅':'○'}</span>
             <div class="stask-info" onclick="event.stopPropagation();toggleDn('${aDate}','${t.id}')">
@@ -503,6 +500,7 @@ function openEditAD(ds,id){
   document.getElementById('t-loc').value='';
   document.getElementById('t-memo').value=t.memo||'';
   document.getElementById('map-sec').style.display='none';
+  document.getElementById('dt-change-row').style.display='none';
   resetAI();
   document.getElementById('t-mod').classList.add('on');
   setTimeout(()=>document.getElementById('t-ttl').focus(),80);
@@ -559,6 +557,7 @@ function openAdd(tm){
   document.getElementById('t-loc').value='';
   document.getElementById('t-memo').value='';
   document.getElementById('map-sec').style.display='none';
+  document.getElementById('dt-change-row').style.display='none'; // 추가 모드에서는 숨김
   depMode='home';curLat=null;curLng=null;
   document.getElementById('btn-home').classList.add('act');
   document.getElementById('btn-cur').classList.remove('act');
@@ -572,14 +571,16 @@ function openEdit(ds,id){
   const t=(tasks[ds]||[]).find(t=>t.id===id);
   if(!t)return;
   aTime=t.tm;
-  document.getElementById('mod-ttl').textContent='✏️ 할 일 수정';
+  document.getElementById('mod-ttl').textContent='✏️ 할 일 수정 / 날짜 변경';
   document.getElementById('mod-tm').textContent=t.tm;
   document.getElementById('t-ttl').value=t.ttl;
   document.getElementById('t-cat').value=t.c;
-  document.getElementById('t-date').value=ds;
-  document.getElementById('t-time').value=t.tm||'allday';
   document.getElementById('t-loc').value=t.loc||'';
   document.getElementById('t-memo').value=t.memo||'';
+  // 날짜/시간 변경 필드 표시 및 현재 값 설정
+  document.getElementById('dt-change-row').style.display='grid';
+  document.getElementById('t-date').value=ds;
+  document.getElementById('t-time').value=t.tm||'allday';
   depMode='home';curLat=null;curLng=null;
   document.getElementById('btn-home').classList.add('act');
   document.getElementById('btn-cur').classList.remove('act');
@@ -613,9 +614,25 @@ function saveTsk(){
     tasks[aDate].sort((a,b)=>(a.tm||'').localeCompare(b.tm||''));
     fbSave('tasks',aDate);renderSlots();
   }else{
-    const t=(tasks[aDate]||[]).find(t=>t.id===editId);
-    if(t){t.ttl=ttl;t.c=c;t.memo=memo;t.loc=loc;}
-    fbSave('tasks',aDate);renderSlots();
+    // 수정 모드 — 날짜/시간 변경 처리
+    const newDate=document.getElementById('t-date').value||aDate;
+    const newTime=document.getElementById('t-time').value||aTime;
+    if(newDate!==aDate||newTime!==aTime){
+      // 기존 날짜에서 제거
+      if(tasks[aDate])tasks[aDate]=tasks[aDate].filter(t=>t.id!==editId);
+      fbSave('tasks',aDate);
+      // 새 날짜에 추가
+      if(!tasks[newDate])tasks[newDate]=[];
+      tasks[newDate].push({id:editId,ttl,tm:newTime,c,dn:false,memo,loc});
+      tasks[newDate].sort((a,b)=>(a.tm||'').localeCompare(b.tm||''));
+      fbSave('tasks',newDate);
+      aDate=newDate;aTime=newTime;
+    }else{
+      const t=(tasks[aDate]||[]).find(t=>t.id===editId);
+      if(t){t.ttl=ttl;t.c=c;t.memo=memo;t.loc=loc;}
+      fbSave('tasks',aDate);
+    }
+    renderSlots();
   }
   closeMod();renderSum();renderCal();
 }
