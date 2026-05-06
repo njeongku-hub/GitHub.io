@@ -7,9 +7,6 @@
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans-serif;background:#f4f6f9;color:#333;font-size:14px}
-.setup-banner{background:linear-gradient(135deg,#e74c3c,#e67e22);color:#fff;padding:14px 18px;font-size:.82rem;line-height:1.7}
-.setup-banner h2{font-size:.95rem;margin-bottom:4px}
-.setup-banner code{background:rgba(255,255,255,.25);padding:1px 5px;border-radius:3px;font-family:monospace}
 .hdr{display:flex;align-items:center;justify-content:space-between;padding:14px 18px;background:#fff;border-bottom:1px solid #eee;position:sticky;top:0;z-index:10}
 .hdr-left{display:flex;align-items:center;gap:10px}
 .hdr h1{font-size:1.15rem;font-weight:700;color:#2c3e50}
@@ -133,12 +130,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 </head>
 <body>
 
-<div id="setup-banner" class="setup-banner" style="display:none">
-  <h2>🔥 Firebase 설정 필요</h2>
-  HTML 파일 안의 <code>firebaseConfig</code> 항목에 Firebase Console에서 복사한 값을 붙여넣으세요.<br>
-  설정 전까지는 <strong>로컬 모드</strong>로 동작합니다 (기기 내에서만 저장).
-</div>
-
 <div class="hdr">
   <button class="nav-btn" onclick="chgMon(-1)">‹</button>
   <div class="hdr-left">
@@ -162,7 +153,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
   <div class="grid7" id="cal-body"></div>
 </div>
 
-<!-- Day popup -->
 <div class="ovl" id="day-ovl" onclick="closePop(event)">
   <div class="pop">
     <div class="pop-hdr">
@@ -172,7 +162,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
       </div>
       <button class="xbtn" onclick="closePop()">×</button>
     </div>
-    <div class="allday-sec" id="allday-sec">
+    <div class="allday-sec">
       <div class="allday-sec-hdr">
         <h4>🌅 하루 종일</h4>
         <button class="add-allday-btn" onclick="openAdd('allday')">+ 추가</button>
@@ -183,7 +173,6 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
   </div>
 </div>
 
-<!-- Task modal -->
 <div class="tmod" id="t-mod" onclick="closeMod(event)">
   <div class="tform">
     <div class="tform-hdr">
@@ -232,25 +221,90 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
   </div>
 </div>
 
-<!-- Firebase SDK -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-app-compat.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/firebase/9.23.0/firebase-firestore-compat.min.js"></script>
-
 <script>
-// ═══════════════════════════════════════════════
-// 🔥 여기에 Firebase Config를 붙여넣으세요
-// ═══════════════════════════════════════════════
-const firebaseConfig = {
-  apiKey: "AIzaSyC8LBPGgESSYkP8sXus7EkmwvnDMtDXPT0",
-  authDomain: "my-calendar-ebffd.firebaseapp.com",
-  projectId: "my-calendar-ebffd",
-  storageBucket: "my-calendar-ebffd.firebasestorage.app",
-  messagingSenderId: "982802653306",
-  appId: "1:982802653306:web:d38b3af19bf60ed4331bc3"
-};
-// ═══════════════════════════════════════════════
+// ── Firebase REST API 설정 ──
+const FB_PROJECT = "my-calendar-ebffd";
+const FB_KEY     = "AIzaSyC8LBPGgESSYkP8sXus7EkmwvnDMtDXPT0";
+const FB_BASE    = `https://firestore.googleapis.com/v1/projects/${FB_PROJECT}/databases/(default)/documents`;
 
-// ── Korean Holidays ──
+// ── Firestore 형식 변환 ──
+function toFS(v){
+  if(v===null||v===undefined) return {nullValue:null};
+  if(typeof v==='boolean') return {booleanValue:v};
+  if(typeof v==='number') return Number.isInteger(v)?{integerValue:String(v)}:{doubleValue:v};
+  if(typeof v==='string') return {stringValue:v};
+  if(Array.isArray(v)) return {arrayValue:{values:v.length?v.map(toFS):[]}};
+  if(typeof v==='object') return {mapValue:{fields:Object.fromEntries(Object.entries(v).map(([k,val])=>[k,toFS(val)]))}};
+  return {stringValue:String(v)};
+}
+function fromFS(v){
+  if(!v) return null;
+  if('nullValue' in v) return null;
+  if('booleanValue' in v) return v.booleanValue;
+  if('integerValue' in v) return parseInt(v.integerValue);
+  if('doubleValue' in v) return v.doubleValue;
+  if('stringValue' in v) return v.stringValue;
+  if('arrayValue' in v) return (v.arrayValue.values||[]).map(fromFS);
+  if('mapValue' in v) return Object.fromEntries(Object.entries(v.mapValue.fields||{}).map(([k,val])=>[k,fromFS(val)]));
+  return null;
+}
+
+// ── Firebase CRUD ──
+async function fbGet(col, doc){
+  try{
+    const r = await fetch(`${FB_BASE}/${col}/${doc}?key=${FB_KEY}`);
+    if(!r.ok) return null;
+    const d = await r.json();
+    return d.fields ? fromFS({mapValue:{fields:d.fields}}) : null;
+  }catch(e){return null;}
+}
+async function fbSet(col, doc, data){
+  try{
+    const fields = Object.fromEntries(Object.entries(data).map(([k,v])=>[k,toFS(v)]));
+    const r = await fetch(`${FB_BASE}/${col}/${doc}?key=${FB_KEY}`, {
+      method:'PATCH',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({fields})
+    });
+    return r.ok;
+  }catch(e){return false;}
+}
+async function fbList(col){
+  try{
+    const r = await fetch(`${FB_BASE}/${col}?key=${FB_KEY}`);
+    if(!r.ok) return {};
+    const d = await r.json();
+    const result = {};
+    (d.documents||[]).forEach(doc=>{
+      const id = doc.name.split('/').pop();
+      const obj = fromFS({mapValue:{fields:doc.fields}});
+      result[id] = obj;
+    });
+    return result;
+  }catch(e){return {};}
+}
+
+async function fbSave(type, date){
+  const data = type==='tasks'?(tasks[date]||[]):(allday[date]||[]);
+  const ok = await fbSet(type==='tasks'?'cal_tasks':'cal_allday', date, {items:data});
+  if(ok) setSyncStatus('on'); else setSyncStatus('off');
+}
+
+async function fbLoadAll(){
+  setSyncStatus('wait');
+  try{
+    const [t, a] = await Promise.all([fbList('cal_tasks'), fbList('cal_allday')]);
+    Object.entries(t).forEach(([date,obj])=>{ if(obj&&obj.items) tasks[date]=obj.items; });
+    Object.entries(a).forEach(([date,obj])=>{ if(obj&&obj.items) allday[date]=obj.items; });
+    setSyncStatus('on');
+  }catch(e){
+    setSyncStatus('off');
+  }
+  render();
+  if(isPopOpen()){renderSlots();renderAlldayList();}
+}
+
+// ── Holidays ──
 const HOLIDAYS={
   '2025-01-01':'신정','2025-01-28':'설날 연휴','2025-01-29':'설날','2025-01-30':'설날 연휴',
   '2025-03-01':'삼일절','2025-05-05':'어린이날','2025-05-06':'부처님오신날',
@@ -279,103 +333,29 @@ let tasks={}, allday={};
 let curY=new Date().getFullYear(), curM=new Date().getMonth();
 let aDate=null, aTime=null, mMode='add', editId=null;
 let depMode='home', curLat=null, curLng=null;
-let db=null;
 const TODAY=fd(new Date());
 
 function fd(d){return `${d.getFullYear()}-${p2(d.getMonth()+1)}-${p2(d.getDate())}`}
 function p2(n){return String(n).padStart(2,'0')}
 function addD(ds,n){const d=new Date(ds);d.setDate(d.getDate()+n);return fd(d)}
 function isPopOpen(){return document.getElementById('day-ovl').classList.contains('on')}
-
-// ── Sync status ──
-function setSyncStatus(state){
+function setSyncStatus(s){
   const el=document.getElementById('sync-pill');
-  if(state==='on'){el.className='sync-pill on';el.textContent='● 동기화 중'}
-  else if(state==='off'){el.className='sync-pill off';el.textContent='● 로컬 모드'}
+  if(s==='on'){el.className='sync-pill on';el.textContent='● 동기화 중'}
+  else if(s==='off'){el.className='sync-pill off';el.textContent='● 오프라인'}
   else{el.className='sync-pill wait';el.textContent='연결 중...'}
 }
 
-// ── Firebase init ──
-const CONFIG_READY=!Object.values(firebaseConfig).includes('여기에_입력');
-
-if(CONFIG_READY){
-  try{
-    firebase.initializeApp(firebaseConfig);
-    db=firebase.firestore();
-    setupListeners();
-  }catch(e){
-    console.error('Firebase 초기화 오류:',e);
-    setSyncStatus('off');
-    seedData(); render();
-  }
-}else{
-  document.getElementById('setup-banner').style.display='block';
-  setSyncStatus('off');
-  seedData(); render();
-}
-
-// ── Firestore listeners ──
-function setupListeners(){
-  db.collection('cal_tasks').onSnapshot(snap=>{
-    snap.docChanges().forEach(ch=>{
-      if(ch.type==='removed') delete tasks[ch.doc.id];
-      else tasks[ch.doc.id]=(ch.doc.data().items||[]);
-    });
-    render();
-    if(isPopOpen()){renderSlots();}
-  }, err=>{console.error(err);setSyncStatus('off')});
-
-  db.collection('cal_allday').onSnapshot(snap=>{
-    snap.docChanges().forEach(ch=>{
-      if(ch.type==='removed') delete allday[ch.doc.id];
-      else allday[ch.doc.id]=(ch.doc.data().items||[]);
-    });
-    render();
-    if(isPopOpen()){renderAlldayList();}
-    setSyncStatus('on');
-  }, err=>{console.error(err);setSyncStatus('off')});
-}
-
-// ── Save to Firestore ──
-async function fbSave(type, date){
-  if(!db) return;
-  const data=type==='tasks'?(tasks[date]||[]):(allday[date]||[]);
-  try{
-    await db.collection(type==='tasks'?'cal_tasks':'cal_allday').doc(date).set({items:data});
-  }catch(e){
-    console.error('저장 오류:',e);
-    setSyncStatus('off');
-  }
-}
-
-// ── Seed data (로컬 모드 전용) ──
-function seedData(){
-  const a=(dt,tm,ttl,c='p',memo='',loc='')=>{
-    if(!tasks[dt])tasks[dt]=[];
-    tasks[dt].push({id:`${Date.now()}_${Math.random()}`,ttl,tm,c,dn:false,memo,loc});
-  };
-  const ad=(dt,ttl,c='p',memo='')=>{
-    if(!allday[dt])allday[dt]=[];
-    allday[dt].push({id:`ad_${Date.now()}_${Math.random()}`,ttl,c,dn:false,memo});
-  };
-  a(TODAY,'09:00','아침 기도 및 묵상','p');
-  a(TODAY,'10:30','성경공부 모임 준비','s','챕터 3~4 정리');
-  a(TODAY,'14:00','온라인 회의','w');
-  a(addD(TODAY,1),'09:30','주간 계획 수립','p');
-  a(addD(TODAY,2),'11:00','독서','s','C.S. Lewis 3장');
-  a(addD(TODAY,8),'12:00','점심 식사 약속','p','장소: 미정 – 주최자 연락 대기 중','');
-  a(addD(TODAY,-2),'10:00','미완성 글 정리','s');
-  ad(TODAY,'성경 통독 (구약 시편)','s','시편 119편 완독 목표');
-}
+// ── 초기 로드 + 30초마다 자동 새로고침 ──
+fbLoadAll();
+setInterval(fbLoadAll, 30000);
 
 // ── Render ──
 function render(){renderHdr();renderSum();renderCal()}
-
 function renderHdr(){
   const ms=['1월','2월','3월','4월','5월','6월','7월','8월','9월','10월','11월','12월'];
   document.getElementById('mon-title').textContent=`${curY}년 ${ms[curM]}`;
 }
-
 function renderSum(){
   const ov=[],td=[],up=[];
   for(let i=-7;i<=-1;i++){const d=addD(TODAY,i);(tasks[d]||[]).filter(t=>!t.dn).forEach(t=>ov.push({...t,date:d}))}
@@ -385,19 +365,17 @@ function renderSum(){
   function rl(arr,id,showDt){
     const el=document.getElementById(id);
     if(!arr.length){el.innerHTML='<div class="empty-msg">항목 없음</div>';return}
-    el.innerHTML=arr.map(t=>`
-      <div class="ti${t.dn?' dn':''}">
-        <div class="dot" style="background:${CC[t.c]}"></div>
-        <div class="ti-body">
-          <span class="ti-ttl">${t.tm==='하루종일'?'🌅 ':''}${t.ttl}${t.memo?' 📝':''}${t.loc?' 📍':''}</span>
-          <span class="ti-sub">${t.loc?'📍 '+t.loc:t.memo?t.memo.split('\n')[0]:''}</span>
-        </div>
-        ${showDt?`<span class="td-lbl">${t.date.slice(5).replace('-','/')}</span>`:''}
-      </div>`).join('');
+    el.innerHTML=arr.map(t=>`<div class="ti${t.dn?' dn':''}">
+      <div class="dot" style="background:${CC[t.c]}"></div>
+      <div class="ti-body">
+        <span class="ti-ttl">${t.tm==='하루종일'?'🌅 ':''}${t.ttl}${t.memo?' 📝':''}${t.loc?' 📍':''}</span>
+        <span class="ti-sub">${t.loc?'📍 '+t.loc:t.memo?t.memo.split('\n')[0]:''}</span>
+      </div>
+      ${showDt?`<span class="td-lbl">${t.date.slice(5).replace('-','/')}</span>`:''}
+    </div>`).join('');
   }
   rl(ov,'s-ov',true);rl(td,'s-td',false);rl(up,'s-up',true);
 }
-
 function renderCal(){
   const body=document.getElementById('cal-body');
   const first=new Date(curY,curM,1),last=new Date(curY,curM+1,0);
@@ -427,7 +405,6 @@ function renderCal(){
     </div>`;
   }).join('');
 }
-
 function chgMon(dir){curM+=dir;if(curM<0){curM=11;curY--}if(curM>11){curM=0;curY++}render()}
 
 // ── Day popup ──
@@ -444,37 +421,31 @@ function closePop(e){
   if(e&&e.target.id!=='day-ovl')return;
   document.getElementById('day-ovl').classList.remove('on');
 }
-
 function renderAlldayList(){
-  const hol=HOLIDAYS[aDate];
-  const ad=allday[aDate]||[];
+  const hol=HOLIDAYS[aDate],ad=allday[aDate]||[];
   let h='';
   if(hol)h+=`<div class="hol-badge">🇰🇷 ${hol} (공휴일)</div>`;
   if(!ad.length&&!hol)h+='<div style="font-size:.75rem;color:#ccc;padding:3px 0">하루 종일 일정 없음</div>';
-  h+=ad.map(t=>`
-    <div class="allday-task${t.dn?' dne':''}">
-      <span class="allday-check" onclick="toggleAD('${aDate}','${t.id}')">${t.dn?'✅':'○'}</span>
-      <div class="allday-info" onclick="toggleAD('${aDate}','${t.id}')">
-        <div class="allday-ttl">${t.ttl}</div>
-        ${t.memo?`<div class="allday-memo-p">📝 ${t.memo.split('\n')[0]}</div>`:''}
-      </div>
-      <div class="allday-acts">
-        <button class="act-btn" onclick="openEditAD('${aDate}','${t.id}')">✏️</button>
-        <button class="act-btn" onclick="quickAIad('${aDate}','${t.id}')">✨</button>
-        <button class="act-btn del" onclick="delAD('${aDate}','${t.id}')">×</button>
-      </div>
-    </div>`).join('');
+  h+=ad.map(t=>`<div class="allday-task${t.dn?' dne':''}">
+    <span class="allday-check" onclick="toggleAD('${aDate}','${t.id}')">${t.dn?'✅':'○'}</span>
+    <div class="allday-info" onclick="toggleAD('${aDate}','${t.id}')">
+      <div class="allday-ttl">${t.ttl}</div>
+      ${t.memo?`<div class="allday-memo-p">📝 ${t.memo.split('\n')[0]}</div>`:''}
+    </div>
+    <div class="allday-acts">
+      <button class="act-btn" onclick="openEditAD('${aDate}','${t.id}')">✏️</button>
+      <button class="act-btn" onclick="quickAIad('${aDate}','${t.id}')">✨</button>
+      <button class="act-btn del" onclick="delAD('${aDate}','${t.id}')">×</button>
+    </div>
+  </div>`).join('');
   document.getElementById('allday-list').innerHTML=h;
 }
-
 function renderSlots(){
-  const body=document.getElementById('pop-body');
-  const dt=tasks[aDate]||[];
+  const body=document.getElementById('pop-body'),dt=tasks[aDate]||[];
   let h='';
   for(let hr=6;hr<=22;hr++){
     for(let mn=0;mn<60;mn+=30){
-      const tm=`${p2(hr)}:${p2(mn)}`;
-      const st=dt.filter(t=>t.tm===tm);
+      const tm=`${p2(hr)}:${p2(mn)}`,st=dt.filter(t=>t.tm===tm);
       const tasksHTML=st.map(t=>{
         const mUrl=t.loc?`https://www.google.com/maps/dir/${encodeURIComponent(HOME_FULL)}/${encodeURIComponent(t.loc)}/?travelmode=transit`:'';
         return `<div class="stask${t.dn?' dne':''}" style="background:${CB[t.c]};border-color:${CC[t.c]}">
@@ -495,9 +466,7 @@ function renderSlots(){
       }).join('');
       h+=`<div class="tslot${mn===30?' half':''}">
         <div class="tlbl">${mn===0?tm:''}</div>
-        <div class="sc sc-add" onclick="openAdd('${tm}')">
-          ${tasksHTML}<div class="sc-hint">+ 추가</div>
-        </div>
+        <div class="sc sc-add" onclick="openAdd('${tm}')">${tasksHTML}<div class="sc-hint">+ 추가</div></div>
       </div>`;
     }
   }
@@ -507,11 +476,11 @@ function renderSlots(){
 // ── All-day CRUD ──
 function toggleAD(ds,id){
   const t=(allday[ds]||[]).find(t=>t.id===id);
-  if(t){t.dn=!t.dn; fbSave('allday',ds);}
+  if(t){t.dn=!t.dn;fbSave('allday',ds);}
   renderAlldayList();renderSum();renderCal();
 }
 function delAD(ds,id){
-  if(allday[ds]){allday[ds]=allday[ds].filter(t=>t.id!==id); fbSave('allday',ds);}
+  if(allday[ds]){allday[ds]=allday[ds].filter(t=>t.id!==id);fbSave('allday',ds);}
   renderAlldayList();renderSum();renderCal();
 }
 function openEditAD(ds,id){
@@ -573,8 +542,7 @@ function resetAI(){
   document.getElementById('ai-app').className='air-app';
 }
 function openAdd(tm){
-  mMode=tm==='allday'?'add-ad':'add';
-  editId=null;aTime=tm;
+  mMode=tm==='allday'?'add-ad':'add';editId=null;aTime=tm;
   document.getElementById('mod-ttl').textContent=tm==='allday'?'🌅 하루종일 일정 추가':'📝 할 일 추가';
   document.getElementById('mod-tm').textContent=tm==='allday'?'하루 종일':tm;
   document.getElementById('t-ttl').value='';
@@ -614,7 +582,6 @@ function closeMod(e){
   if(e&&e.target.id!=='t-mod')return;
   document.getElementById('t-mod').classList.remove('on');
 }
-
 function saveTsk(){
   const ttl=document.getElementById('t-ttl').value.trim();
   if(!ttl)return;
@@ -624,35 +591,30 @@ function saveTsk(){
   if(mMode==='add-ad'){
     if(!allday[aDate])allday[aDate]=[];
     allday[aDate].push({id:`ad_${Date.now()}`,ttl,c,dn:false,memo});
-    fbSave('allday',aDate);
-    renderAlldayList();
+    fbSave('allday',aDate);renderAlldayList();
   }else if(mMode==='edit-ad'){
     const t=(allday[aDate]||[]).find(t=>t.id===editId);
     if(t){t.ttl=ttl;t.c=c;t.memo=memo;}
-    fbSave('allday',aDate);
-    renderAlldayList();
+    fbSave('allday',aDate);renderAlldayList();
   }else if(mMode==='add'){
     if(!tasks[aDate])tasks[aDate]=[];
     tasks[aDate].push({id:`${Date.now()}`,ttl,tm:aTime,c,dn:false,memo,loc});
     tasks[aDate].sort((a,b)=>(a.tm||'').localeCompare(b.tm||''));
-    fbSave('tasks',aDate);
-    renderSlots();
+    fbSave('tasks',aDate);renderSlots();
   }else{
     const t=(tasks[aDate]||[]).find(t=>t.id===editId);
     if(t){t.ttl=ttl;t.c=c;t.memo=memo;t.loc=loc;}
-    fbSave('tasks',aDate);
-    renderSlots();
+    fbSave('tasks',aDate);renderSlots();
   }
   closeMod();renderSum();renderCal();
 }
-
 function toggleDn(ds,id){
   const t=(tasks[ds]||[]).find(t=>t.id===id);
-  if(t){t.dn=!t.dn; fbSave('tasks',ds);}
+  if(t){t.dn=!t.dn;fbSave('tasks',ds);}
   renderSlots();renderSum();renderCal();
 }
 function delTsk(ds,id){
-  if(tasks[ds]){tasks[ds]=tasks[ds].filter(t=>t.id!==id); fbSave('tasks',ds);}
+  if(tasks[ds]){tasks[ds]=tasks[ds].filter(t=>t.id!==id);fbSave('tasks',ds);}
   renderSlots();renderSum();renderCal();
 }
 
@@ -678,7 +640,6 @@ async function aiSuggest(){
 `할 일: "${ttl}"
 날짜: ${aDate}${isAD?' (하루 종일 일정)':`, 시간: ${aTime}`}
 현재 메모: "${memo||'없음'}"${locPart}
-
 한국어로 간결하게 제안해주세요:
 1. 실행 팁
 2. ${isAD?'하루 일정 구성 제안':'예상 소요 시간'}
