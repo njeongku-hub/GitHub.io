@@ -253,7 +253,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans KR',sans
 
 <script>
 // ── Anthropic API 키 (발급 후 여기에 입력) ──
-const ANTHROPIC_KEY = "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"; // sk-ant-...
+const ANTHROPIC_KEY = "여기에_API_키_입력"; // sk-ant-...
 
 // ── Firebase REST API ──
 const FB_PROJECT="my-calendar-ebffd";
@@ -707,11 +707,16 @@ async function aiSuggest(){
       })
     });
     const data=await res.json();
+    if(data.error){
+      air.className='air on';
+      air.textContent=`⚠️ API 오류: ${data.error.type} — ${data.error.message}`;
+      return;
+    }
     const txt=data.content?.find(c=>c.type==='text')?.text||'제안을 가져올 수 없습니다.';
     air.className='air on';air.textContent=txt;
     document.getElementById('ai-app').className='air-app on';
   }catch(e){
-    air.className='air on';air.textContent='⚠️ AI 연결에 실패했습니다.';
+    air.className='air on';air.textContent=`⚠️ 연결 오류: ${e.message}`;
   }
 }
 function appendAI(){
