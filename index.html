@@ -660,8 +660,19 @@ async function saveTsk(){
 
   if(mMode==='add-ad'){
     if(!allday[aDate])allday[aDate]=[];
-    allday[aDate].push({id:`ad_${Date.now()}`,ttl,c,dn:false,memo,repeat});
-    fbSave('allday',aDate);renderAlldayList();
+    const newAdTask={id:`ad_${Date.now()}`,ttl,c,dn:false,memo,repeat};
+    allday[aDate].push(newAdTask);
+    await fbSave('allday',aDate);
+    // 하루종일 반복 일정 생성
+    if(repeat&&repeat!=='none'){
+      const repDates=getRepeatDates(aDate,repeat);
+      for(const rd of repDates){
+        if(!allday[rd])allday[rd]=[];
+        allday[rd].push({...newAdTask,id:`ad_${Date.now()}_${rd}`,dn:false});
+        await fbSave('allday',rd);
+      }
+    }
+    renderAlldayList();
   }else if(mMode==='edit-ad'){
     const t=(allday[aDate]||[]).find(t=>t.id===editId);
     if(t){t.ttl=ttl;t.c=c;t.memo=memo;t.repeat=repeat;}
