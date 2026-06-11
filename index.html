@@ -357,12 +357,12 @@ async function fbLoadAll(){
   setSyncStatus('wait');
   try{
     const[t,a]=await Promise.all([fbList('cal_tasks'),fbList('cal_allday')]);
-    // Firebase 데이터가 있을 때만 업데이트
-    if(Object.keys(t).length>0||Object.keys(a).length>0){
-      Object.entries(t).forEach(([date,obj])=>{if(obj&&obj.items)tasks[date]=obj.items;});
-      Object.entries(a).forEach(([date,obj])=>{if(obj&&obj.items)allday[date]=obj.items;});
-      lsSave(); // 성공적으로 불러오면 백업 갱신
-    }
+    // Firebase 데이터로 완전히 교체 (병합 아님)
+    tasks={};
+    allday={};
+    Object.entries(t).forEach(([date,obj])=>{if(obj&&obj.items&&obj.items.length>0)tasks[date]=obj.items;});
+    Object.entries(a).forEach(([date,obj])=>{if(obj&&obj.items&&obj.items.length>0)allday[date]=obj.items;});
+    lsSave();
     setSyncStatus('on');
   }catch(e){
     // Firebase 실패 시 로컬 백업 사용
