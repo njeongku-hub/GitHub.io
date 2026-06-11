@@ -331,19 +331,44 @@ async function fbList(col){
     return result;
   }catch(e){return{};}
 }
+// ── localStorage 백업 ──
+function lsSave(){
+  try{
+    localStorage.setItem('cal_tasks_backup', JSON.stringify(tasks));
+    localStorage.setItem('cal_allday_backup', JSON.stringify(allday));
+  }catch(e){}
+}
+function lsLoad(){
+  try{
+    const t=localStorage.getItem('cal_tasks_backup');
+    const a=localStorage.getItem('cal_allday_backup');
+    if(t) Object.assign(tasks, JSON.parse(t));
+    if(a) Object.assign(allday, JSON.parse(a));
+  }catch(e){}
+}
+
 async function fbSave(type,date){
   const data=type==='tasks'?(tasks[date]||[]):(allday[date]||[]);
   const ok=await fbSet(type==='tasks'?'cal_tasks':'cal_allday',date,{items:data});
+  lsSave(); // 항상 로컬 백업
   setSyncStatus(ok?'on':'off');
 }
 async function fbLoadAll(){
   setSyncStatus('wait');
   try{
     const[t,a]=await Promise.all([fbList('cal_tasks'),fbList('cal_allday')]);
-    Object.entries(t).forEach(([date,obj])=>{if(obj&&obj.items)tasks[date]=obj.items;});
-    Object.entries(a).forEach(([date,obj])=>{if(obj&&obj.items)allday[date]=obj.items;});
+    // Firebase 데이터가 있을 때만 업데이트
+    if(Object.keys(t).length>0||Object.keys(a).length>0){
+      Object.entries(t).forEach(([date,obj])=>{if(obj&&obj.items)tasks[date]=obj.items;});
+      Object.entries(a).forEach(([date,obj])=>{if(obj&&obj.items)allday[date]=obj.items;});
+      lsSave(); // 성공적으로 불러오면 백업 갱신
+    }
     setSyncStatus('on');
-  }catch(e){setSyncStatus('off');}
+  }catch(e){
+    // Firebase 실패 시 로컬 백업 사용
+    lsLoad();
+    setSyncStatus('off');
+  }
   render();
   if(isPopOpen()){renderSlots();renderAlldayList();}
 }
@@ -432,7 +457,9 @@ function setSyncStatus(s){
 }
 
 buildTimeOptions();
-fbLoadAll();
+lsLoad(); // 앱 시작 시 로컬 백업 먼저 로드 (즉시 표시)
+render();
+fbLoadAll(); // Firebase에서 최신 데이터 로드
 setInterval(fbLoadAll,30000);
 
 // ── Render ──
